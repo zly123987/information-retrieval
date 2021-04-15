@@ -1,8 +1,8 @@
 import csv, json
 import sys
 from collections import defaultdict
-import time
-block_size = 10
+from time import time
+longest = 127
 def inversion(block):
     out = defaultdict(set)
     for each in block:
@@ -29,50 +29,21 @@ def ori_inversion(block):
 
 def get_postings(term, block, compression_mode):
     if compression_mode == 'DAAS':
-        string, table = block
-        tmp_range = list(table.keys())
+        string, tmp_range = block
 
         while len(tmp_range) > 1:
-            if string[tmp_range[int(len(tmp_range)/2)-1]:tmp_range[int(len(tmp_range)/2)]]> term:
+            if string[tmp_range[int(len(tmp_range)/2)-1][0]:tmp_range[int(len(tmp_range)/2)][0]]> term:
                 tmp_range = tmp_range[:int(len(tmp_range)/2)]
-            elif string[tmp_range[int(len(tmp_range)/2)-1]:tmp_range[int(len(tmp_range)/2)]]< term:
+            elif string[tmp_range[int(len(tmp_range)/2)-1][0]:tmp_range[int(len(tmp_range)/2)][0]]< term:
                 tmp_range = tmp_range[int(len(tmp_range)/2):]
-            elif string[tmp_range[int(len(tmp_range)/2)- 1]:tmp_range[int(len(tmp_range)/2)]] == term:
+            elif string[tmp_range[int(len(tmp_range)/2)- 1][0]:tmp_range[int(len(tmp_range)/2)][0]] == term:
                 tmp_range = [tmp_range[int(len(tmp_range)/2) - 1]]
 
-        if len(tmp_range) == 0:
+        if len([tmp_range]) == 0:
             return []
         else:
-            return table[tmp_range[0]]
-    elif compression_mode == 'blocking':
-        string, table, length = block
-        entire = list(table.keys())
+            return tmp_range[0][1]
 
-
-        tmp_range = entire
-        while len(tmp_range) > 2:
-            if string[tmp_range[int(len(tmp_range) / 2) ]:tmp_range[int(len(tmp_range) / 2)+1]][:length[entire.index(tmp_range[int(len(tmp_range) / 2)])][0]] == term:
-                tmp_range = [tmp_range[int(len(tmp_range) / 2)]]
-            elif string[tmp_range[int(len(tmp_range) / 2) ]:tmp_range[int(len(tmp_range) / 2)+1]] > term:
-                tmp_range = tmp_range[:int(len(tmp_range) / 2)]
-            elif string[tmp_range[int(len(tmp_range) / 2) ]:tmp_range[int(len(tmp_range) / 2)]+1] < term:
-                tmp_range = tmp_range[int(len(tmp_range) / 2):]
-
-        if len(tmp_range)==2:
-            if string[tmp_range[1]:entire[entire.index(tmp_range[1])+1]] > term:
-                tmp_range = [tmp_range[0]]
-            else:
-                tmp_range = [tmp_range[1]]
-        if len(tmp_range) == 0:
-            return []
-        else:
-            offset = 0
-            for i, le in enumerate(length[entire.index(tmp_range[0])]):
-                print(string[tmp_range[0]+offset: tmp_range[0]+offset+le])
-                if string[tmp_range[0]+offset: tmp_range[0]+offset+le] == term:
-                    return table[tmp_range[0]][i]
-                offset+=le
-            return []
     else:
         term = "{:<127}".format(term)
         tmp_range = list(block.keys())
@@ -84,7 +55,7 @@ def get_postings(term, block, compression_mode):
             elif tmp_range[int(len(tmp_range) / 2) - 1] == term:
                 tmp_range = [tmp_range[int(len(tmp_range) / 2) - 1]]
 
-        if len(tmp_range) == 0:
+        if len([tmp_range]) == 0:
             return []
         else:
             return block[tmp_range[0]]
@@ -93,7 +64,6 @@ def get_postings(term, block, compression_mode):
 def query(exp, block, compression_mode):
     op = ''
     postings = []
-
     for i, com in enumerate(exp.split(' ')):
         if com == '&' or com == '|' or com == '!':
             op = com
@@ -104,12 +74,11 @@ def query(exp, block, compression_mode):
             elif op == '|':
                 postings = list(set(get_postings(com, block, compression_mode)+postings))
             elif op == '!':
-                postings = [e for e in postings if e not in get_postings(com, block, compression_mode)]
+                postings = [e for e in  postings if e in get_postings(com, block, compression_mode)]
             op = ''
             continue
         if i ==0:
             postings = get_postings(com, block, compression_mode)
-    time.sleep(0.2)
     return postings
 
 
@@ -126,13 +95,13 @@ def compression(compression_mode):
                 l.sort()
                 block["{:<127}".format(k)] = l
 
-    if compression_mode == 'DAAS':
+    elif compression_mode == 'DAAS':
         with open('inverted.json', ) as f:
             block = json.load(f)
-            table = {}
+            table = []
             longstring = ''
             for b in block:
-                table[len(longstring)] = block[b]
+                table.append((len(longstring), block[b]))
                 longstring += b
         # open('DAAS.json', 'w').write(json.dumps([longstring, table]))
         block = [longstring, table]
@@ -140,28 +109,13 @@ def compression(compression_mode):
         with open('inverted.json', ) as f:
             block = json.load(f)
             table = {}
-            length= []
-            tmp = None
             longstring = ''
-            current = 0
-            count = 0
             for b in block:
-                if count%block_size==0:
-                    current = len(longstring)
-                    if tmp:
-                        length.append(tmp)
-                    table[current] = [block[b]]
+                if table%2==0:
+                    table.append((len(longstring), block[b]))
                     longstring += b
-                    tmp = [len(b)]
-
-                else:
-                    table[current].append(block[b])
-                    longstring += b
-                    tmp.append(len(b))
-                count +=1
         # open('DAAS.json', 'w').write(json.dumps([longstring, table]))
-        length.append(tmp)
-        block = [longstring, table, length]
+        block = [longstring, table]
     return block
 
 
@@ -176,16 +130,16 @@ def dictAsString(block):
 def search(q, compression_mode):
     if compression_mode =='':
         block = json.load(open('ori_inverted.json'))
-    elif compression_mode == 'bloccccccccccccccking':
+    elif compression_mode == 'DAAS':
         block = json.load(open('DAAS.json'))
     return query(q, block, compression_mode)
 
 if __name__=='__main__':
-    start = time.time()
-    compression_mode = 'blocking'
+    start = time()
+    compression_mode = ''
     q = sys.argv[1]
     block = compression(compression_mode)
-    print('Compression took', time.time()-start)
-    start = time.time()
+    print('Compression took', time()-start)
+    start = time()
     print(query(q.lower(), block, compression_mode))
-    print('Search took', time.time() - start)
+    print('Search took', time() - start)
